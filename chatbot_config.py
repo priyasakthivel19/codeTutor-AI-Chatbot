@@ -1,11 +1,14 @@
 import os
-import google.generativeai as genai
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_API_KEY)
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-flash-latest:generateContent"
+)
 
 SYSTEM_PROMPT = """
 You are CodeTutor AI, a friendly and patient programming tutor.
@@ -23,26 +26,41 @@ Rules:
 - Be encouraging — this is a learning tool for students.
 """
 
-_model = genai.GenerativeModel(
-    model_name="gemini-flash-latest",
-    system_instruction=SYSTEM_PROMPT,
-)
-
 
 def get_bot_response(user_message: str, chat_history=None) -> str:
     try:
-        history_for_gemini = []
+        contents = []
+
         if chat_history:
             for turn in chat_history:
                 gemini_role = "user" if turn.get("role") == "user" else "model"
-                history_for_gemini.append({
+                contents.append({
                     "role": gemini_role,
-                    "parts": [turn.get("message", "")]
+                    "parts": [{"text": turn.get("message", "")}]
                 })
 
-        chat = _model.start_chat(history=history_for_gemini)
-        response = chat.send_message(user_message)
-        return response.text.strip()
+        contents.append({
+            "role": "user",
+            "parts": [{"text": user_message}]
+        })
+
+        payload = {
+            "system_instruction": {
+                "parts": [{"text": SYSTEM_PROMPT}]
+            },
+            "contents": contents
+        }
+
+        response = requests.post(
+            f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+            json=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        reply = data["candidates"][0]["content"]["parts"][0]["text"]
+        return reply.strip()
 
     except Exception as e:
         return f"Sorry, I ran into an error talking to the AI service: {e}"
